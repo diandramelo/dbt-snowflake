@@ -1,14 +1,14 @@
 -- Import CTEs
 WITH orders AS (
-    SELECT * FROM {{ source('jaffle_shop', 'orders') }} 
+    SELECT * FROM {{ ref("stg_jaffle_shop__orders") }} 
 )
 
 , customers AS (
-    SELECT * FROM {{ source('jaffle_shop', 'customers') }}
+    SELECT * FROM {{ ref("stg_jaffle_shop__customers") }}
 )
 
 , payments AS (
-    SELECT * FROM {{ source('stripe', 'payment') }}
+    SELECT * FROM {{ ref("stg_stripe__payments") }}
 )
 
 
