@@ -1,5 +1,34 @@
-WITH paid_orders AS 
-(
+-- Import CTEs
+WITH orders AS (
+    SELECT * FROM {{ source('jaffle_shop', 'orders') }} 
+)
+
+, customers AS (
+    SELECT * FROM {{ source('jaffle_shop', 'customers') }}
+)
+
+, payments AS (
+    SELECT * FROM {{ source('stripe', 'payment') }}
+)
+
+
+-- Logical CTEs
+, completed_payments AS (
+    SELECT 
+          orderid AS order_id
+        , MAX(created) AS payment_finalized_date
+        , SUM(amount) / 100.0 AS total_amount_paid
+    FROM payments
+        WHERE status <> 'fail'
+        GROUP BY 1
+)
+
+------------------------
+-- Final CTEs
+-- Simple SELECT statement
+------------------------
+
+, paid_orders AS (
     SELECT 
           orders.id AS order_id
         , orders.user_id AS customer_id
@@ -9,27 +38,19 @@ WITH paid_orders AS
         , p.payment_finalized_date
         , c.first_name AS customer_first_name
         , c.last_name AS customer_last_name
-    FROM {{ source('jaffle_shop', 'orders') }} AS orders
-    LEFT JOIN (
-        SELECT 
-              orderid AS order_id
-            , MAX(created) AS payment_finalized_date
-            , SUM(amount) / 100.0 AS total_amount_paid
-        FROM {{ source('stripe', 'payment') }} AS payments
-            WHERE status <> 'fail'
-            GROUP BY 1
-    ) p ON orders.id = p.order_id
-    LEFT JOIN {{ source('jaffle_shop', 'customers') }} AS c ON orders.user_id = c.id 
-),
+    FROM orders
+    LEFT JOIN completed_payments p ON orders.id = p.order_id
+    LEFT JOIN customers AS c ON orders.user_id = c.id 
+)
 
-customer_orders AS (
+, customer_orders AS (
     SELECT 
           c.id AS customer_id
         , min(order_date) AS first_order_date
         , max(order_date) AS most_recent_order_date
         , count(orders.id) AS number_of_orders
-    FROM {{ source('jaffle_shop', 'customers') }} c 
-    LEFT JOIN {{ source('jaffle_shop', 'orders') }}  AS orders ON orders.user_id = c.id 
+    FROM customers c 
+    LEFT JOIN orders ON orders.user_id = c.id 
         GROUP BY 1
     )         
 
