@@ -23,56 +23,58 @@ WITH orders AS (
         GROUP BY 1
 )
 
-------------------------
--- Final CTEs
--- Simple SELECT statement
-------------------------
-
 , paid_orders AS (
     SELECT 
           orders.id AS order_id
         , orders.user_id AS customer_id
         , orders.order_date AS order_placed_at
         , orders.status AS order_status
-        , p.total_amount_paid
-        , p.payment_finalized_date
-        , c.first_name AS customer_first_name
-        , c.last_name AS customer_last_name
+
+        , completed_payments.total_amount_paid
+        , completed_payments.payment_finalized_date
+
+        , customers.first_name AS customer_first_name
+        , customers.last_name AS customer_last_name
     FROM orders
-    LEFT JOIN completed_payments p ON orders.id = p.order_id
-    LEFT JOIN customers AS c ON orders.user_id = c.id 
+    LEFT JOIN completed_payments ON orders.id = completed_payments.order_id
+    LEFT JOIN customers ON orders.user_id = customers.id 
 )
 
-, customer_orders AS (
-    SELECT 
-          c.id AS customer_id
-        , min(order_date) AS first_order_date
-        , max(order_date) AS most_recent_order_date
-        , count(orders.id) AS number_of_orders
-    FROM customers c 
-    LEFT JOIN orders ON orders.user_id = c.id 
-        GROUP BY 1
-    )         
 
-SELECT
-      p.*
-    , row_number() over (order by p.order_id) AS transaction_seq
-    , row_number() over (partition by customer_id order by p.order_id) AS customer_sales_seq
-    , CASE WHEN 
-        c.first_order_date = p.order_placed_at THEN 'new'
-        ELSE 'return' 
-      END AS nvsr
-    , x.clv_bad AS customer_lifetime_value
-    , c.first_order_date AS fdos
-FROM paid_orders p
-LEFT JOIN customer_orders AS c USING (customer_id)
-LEFT OUTER JOIN (
+-- Final CTE
+
+, final AS (   
     SELECT
-          p.order_id
-        , SUM(t2.total_amount_paid) AS clv_bad
-    FROM paid_orders p
-    LEFT JOIN paid_orders t2 ON p.customer_id = t2.customer_id and p.order_id >= t2.order_id
-        GROUP BY 1
-        ORDER BY p.order_id
-    ) x ON x.order_id = p.order_id
+        paid_orders.*
+        -- sales transaction sequence
+        ROW_NUMBER() OVER(ORDER BY order_id) AS transaction_seq,
+
+        -- customer sales sequence
+        ROW_NUMBER() OVER(PARTITION BY customer_id ORDER BY order_id) AS customer_sales_seq,
+
+        -- new vs returning customer
+        CASE  
+        WHEN RANK() OVER ( PARTITION BY customer_id ORDER BY order_placed_at, order_id ) = 1 THEN 'new'
+        ELSE 'return'
+        END AS nvsr,
+
+        -- customer lifetime value
+        SUM(total_amount_paid) OVER (
+        PARTITION BY customer_id
+        ORDER BY order_placed_at
+        ) AS customer_lifetime_value,
+
+        -- first day of sale
+        FIRST_VALUE(order_placed_at) OVER (
+        PARTITION BY customer_id
+        ORDER BY order_placed_at
+        ) AS fdos
+
+    FROM paid_orders
+)
+
+
+-- Simple SELECT statement
+
+SELECT * FROM final
     ORDER BY order_id
